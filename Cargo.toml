@@ -19,7 +19,7 @@ sigma-zero = { git = "https://github.com/ping2A/sigmazero.git", optional = true 
 serde_yaml = { version = "0.9", optional = true }
 
 # WebUSB support (optional)
-web-sys = { version = "0.3.83", optional = true, features = [
+web-sys = { version = "0.3.91", optional = true, features = [
     "console",
     "Window",
     "Navigator",
