@@ -35,8 +35,7 @@ impl WebUsbTransport {
         filter.set_subclass_code(ADB_SUBCLASS);
         filter.set_protocol_code(ADB_PROTOCOL);
 
-        let filters = js_sys::Array::new();
-        filters.push(&filter);
+        let filters = vec![filter];
 
         let options = UsbDeviceRequestOptions::new(&filters);
 
