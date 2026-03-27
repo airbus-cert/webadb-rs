@@ -381,7 +381,8 @@ impl AdbClient {
                     continue;
                 }
                 Command::Clse => {
-                    // Stream closed
+                    // Recipient initiated stream close
+                    self.streams.remove(&message.arg1);
                     return Err(AdbError::StreamError("Stream closed by device".to_string()));
                 }
                 _ => {
@@ -400,11 +401,13 @@ impl AdbClient {
         let remote_id = match self.streams.get(&local_id) {
             Some(tracked) => tracked.stream.remote_id,
             None => {
-                // Stream already closed/removed - this is fine
+                // Stream already closed/removed in read_stream
+                // This is fine, this means close was initiated by recipient
                 return Ok(());
             }
         };
 
+        // Close is initiated by us
         // Send CLSE message
         let message = Message::new(Command::Clse, local_id, remote_id, &[]);
         if let Err(_) = self.transport.send_message(&message, &[]).await {
