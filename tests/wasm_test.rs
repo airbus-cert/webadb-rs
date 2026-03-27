@@ -44,7 +44,8 @@ mod tests {
 
     #[test]
     fn test_extract_manufacturer_model() {
-        let fingerprint = "'samsung/a34xeea/a34x:15/AP3A.240905.015.A2/A346BXXSBDYI1:user/release-keys'";
+        let fingerprint =
+            "'samsung/a34xeea/a34x:15/AP3A.240905.015.A2/A346BXXSBDYI1:user/release-keys'";
         let (manufacturer, model) = extract_manufacturer_model(fingerprint);
         assert_eq!(manufacturer, "samsung");
         assert_eq!(model, "a34x");
@@ -60,7 +61,8 @@ mod tests {
 
     #[test]
     fn test_extract_manufacturer_model_no_colon() {
-        let fingerprint = "oneplus/OnePlus8/OnePlus8:11/RKQ1.201112.002/2105050000:user/release-keys";
+        let fingerprint =
+            "oneplus/OnePlus8/OnePlus8:11/RKQ1.201112.002/2105050000:user/release-keys";
         let (manufacturer, model) = extract_manufacturer_model(fingerprint);
         assert_eq!(manufacturer, "oneplus");
         assert_eq!(model, "OnePlus8");

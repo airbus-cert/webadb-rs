@@ -31,10 +31,10 @@
 //! ```
 
 pub mod auth;
-#[cfg(feature = "bugreport-analysis")]
-pub mod parsers;
 #[cfg(feature = "webusb")]
 pub mod client;
+#[cfg(feature = "bugreport-analysis")]
+pub mod parsers;
 pub mod protocol;
 pub mod sync;
 #[cfg(feature = "webusb")]
@@ -48,6 +48,6 @@ pub use auth::AdbKeyPair;
 pub use client::AdbClient;
 pub use protocol::{AdbError, Command, ConnectionState, Message};
 #[cfg(feature = "webusb")]
-pub use transport::{WebUsbTransport, DeviceInfo};
+pub use transport::{DeviceInfo, WebUsbTransport};
 #[cfg(feature = "webusb")]
 pub use wasm::Adb;

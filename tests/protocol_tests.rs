@@ -49,12 +49,12 @@ fn test_message_roundtrip() {
         (Command::Clse, 5, 10, b"" as &[u8]),
         (Command::Wrte, 5, 10, b"output data" as &[u8]),
     ];
-    
+
     for (cmd, arg0, arg1, data) in test_cases {
         let message = Message::new(cmd, arg0, arg1, data);
         let bytes = message.to_bytes();
         let deserialized = Message::from_bytes(&bytes).unwrap();
-        
+
         assert_eq!(deserialized.command, cmd);
         assert_eq!(deserialized.arg0, arg0);
         assert_eq!(deserialized.arg1, arg1);
@@ -66,7 +66,7 @@ fn test_message_roundtrip() {
 fn test_message_from_bytes_too_short() {
     let bytes = vec![0u8; 20]; // Too short (need 24)
     assert!(Message::from_bytes(&bytes).is_err());
-    
+
     let bytes = vec![0u8; 0]; // Empty
     assert!(Message::from_bytes(&bytes).is_err());
 }
@@ -82,10 +82,10 @@ fn test_message_from_bytes_invalid_command() {
 fn test_message_from_bytes_invalid_magic() {
     let message = Message::new(Command::Cnxn, 0, 0, b"");
     let mut bytes = message.to_bytes();
-    
+
     // Corrupt the magic field (bytes 20..24: command, arg0, arg1, data_length, data_crc32, magic)
     bytes[20..24].copy_from_slice(&0x12345678u32.to_le_bytes());
-    
+
     assert!(Message::from_bytes(&bytes).is_err());
 }
 
@@ -93,7 +93,7 @@ fn test_message_from_bytes_invalid_magic() {
 fn test_checksum() {
     let data = b"Hello, ADB!";
     let sum = checksum(data);
-    
+
     // Checksum should be sum of all bytes
     let expected: u32 = data.iter().map(|&b| b as u32).sum();
     assert_eq!(sum, expected);
@@ -116,7 +116,7 @@ fn test_checksum_overflow() {
 fn test_message_verify_data() {
     let data = b"test data";
     let message = Message::new(Command::Wrte, 1, 2, data);
-    
+
     assert!(message.verify_data(data));
     assert!(!message.verify_data(b"wrong data"));
     assert!(!message.verify_data(b""));
@@ -133,7 +133,7 @@ fn test_empty_data_checksum() {
 fn test_magic_calculation() {
     let message = Message::new(Command::Cnxn, 0, 0, &[]);
     assert_eq!(message.magic, (Command::Cnxn as u32) ^ 0xffffffff);
-    
+
     let message = Message::new(Command::Wrte, 0, 0, &[]);
     assert_eq!(message.magic, (Command::Wrte as u32) ^ 0xffffffff);
 }
@@ -148,10 +148,10 @@ fn test_constants() {
 fn test_adb_error_display() {
     let err = AdbError::NotConnected;
     assert_eq!(format!("{}", err), "Not connected");
-    
+
     let err = AdbError::InvalidMessage("test".to_string());
     assert!(format!("{}", err).contains("test"));
-    
+
     let err = AdbError::IoError("io error".to_string());
     assert!(format!("{}", err).contains("io error"));
 }
@@ -160,7 +160,7 @@ fn test_adb_error_display() {
 fn test_large_payload() {
     let data = vec![0x42; MAX_PAYLOAD as usize];
     let message = Message::new(Command::Wrte, 1, 2, &data);
-    
+
     assert_eq!(message.data_length, MAX_PAYLOAD);
     assert!(message.verify_data(&data));
 }
@@ -169,7 +169,7 @@ fn test_large_payload() {
 fn test_message_new_computes_correct_checksum() {
     let data = b"some test data";
     let message = Message::new(Command::Wrte, 1, 2, data);
-    
+
     let expected_checksum = checksum(data);
     assert_eq!(message.data_crc32, expected_checksum);
 }

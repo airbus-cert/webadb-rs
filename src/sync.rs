@@ -66,18 +66,23 @@ impl SyncPacket {
     /// Deserialize from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, AdbError> {
         if bytes.len() < 8 {
-            return Err(AdbError::InvalidMessage("Sync packet too short".to_string()));
+            return Err(AdbError::InvalidMessage(
+                "Sync packet too short".to_string(),
+            ));
         }
 
         let cmd_bytes = [bytes[0], bytes[1], bytes[2], bytes[3]];
         let cmd_u32 = u32::from_le_bytes(cmd_bytes);
-        let command = SyncCommand::from_u32(cmd_u32)
-            .ok_or_else(|| AdbError::InvalidMessage(format!("Unknown sync command: 0x{:08x}", cmd_u32)))?;
+        let command = SyncCommand::from_u32(cmd_u32).ok_or_else(|| {
+            AdbError::InvalidMessage(format!("Unknown sync command: 0x{:08x}", cmd_u32))
+        })?;
 
         let length = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize;
 
         if bytes.len() < 8 + length {
-            return Err(AdbError::InvalidMessage("Sync packet data truncated".to_string()));
+            return Err(AdbError::InvalidMessage(
+                "Sync packet data truncated".to_string(),
+            ));
         }
 
         let data = bytes[8..8 + length].to_vec();
@@ -154,7 +159,10 @@ mod tests {
         let bytes = packet.to_bytes();
 
         assert_eq!(&bytes[0..4], &SyncCommand::Data.as_bytes());
-        assert_eq!(u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]), data.len() as u32);
+        assert_eq!(
+            u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+            data.len() as u32
+        );
         assert_eq!(&bytes[8..], data.as_slice());
     }
 

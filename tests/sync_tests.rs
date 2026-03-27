@@ -31,26 +31,35 @@ fn test_sync_packet_serialization() {
     let packet = SyncPacket::new(SyncCommand::Data, data.clone());
     let bytes = packet.to_bytes();
     assert_eq!(&bytes[0..4], &SyncCommand::Data.as_bytes());
-    assert_eq!(u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]), data.len() as u32);
+    assert_eq!(
+        u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+        data.len() as u32
+    );
     assert_eq!(&bytes[8..], data.as_slice());
 }
 #[test]
 fn test_sync_packet_empty_data() {
     let packet = SyncPacket::new(SyncCommand::Done, vec![]);
     let bytes = packet.to_bytes();
-    
+
     assert_eq!(bytes.len(), 8); // 4 bytes command + 4 bytes length
     assert_eq!(&bytes[0..4], &SyncCommand::Done.as_bytes());
-    assert_eq!(u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]), 0);
+    assert_eq!(
+        u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+        0
+    );
 }
 #[test]
 fn test_sync_packet_large_data() {
     let data = vec![0x42u8; 65536]; // 64KB of data
     let packet = SyncPacket::new(SyncCommand::Data, data.clone());
     let bytes = packet.to_bytes();
-    
+
     assert_eq!(bytes.len(), 8 + 65536);
-    assert_eq!(u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]), 65536);
+    assert_eq!(
+        u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+        65536
+    );
     assert_eq!(&bytes[8..], data.as_slice());
 }
 #[test]
@@ -58,7 +67,7 @@ fn test_sync_packet_deserialization() {
     let data = b"hello world".to_vec();
     let packet = SyncPacket::new(SyncCommand::Send, data.clone());
     let bytes = packet.to_bytes();
-    
+
     let deserialized = SyncPacket::from_bytes(&bytes).unwrap();
     assert_eq!(deserialized.command, SyncCommand::Send);
     assert_eq!(deserialized.data, data);
@@ -68,7 +77,7 @@ fn test_sync_packet_deserialization_error_too_short() {
     let bytes = vec![0x44, 0x41, 0x54, 0x41]; // Only command, no length
     let result = SyncPacket::from_bytes(&bytes);
     assert!(result.is_err());
-    
+
     let bytes = vec![0x44, 0x41, 0x54, 0x41, 0x04, 0x00, 0x00]; // Missing one byte
     let result = SyncPacket::from_bytes(&bytes);
     assert!(result.is_err());
@@ -79,7 +88,7 @@ fn test_sync_packet_deserialization_error_truncated_data() {
     bytes[0..4].copy_from_slice(&SyncCommand::Data.as_bytes());
     bytes[4..8].copy_from_slice(&10u32.to_le_bytes()); // Says 10 bytes but we'll provide only 5
     bytes.extend_from_slice(b"hello"); // Only 5 bytes
-    
+
     let result = SyncPacket::from_bytes(&bytes);
     assert!(result.is_err());
 }
@@ -89,7 +98,7 @@ fn test_sync_packet_deserialization_error_invalid_command() {
     bytes[0..4].copy_from_slice(&0xDEADBEEFu32.to_le_bytes()); // Invalid command
     bytes[4..8].copy_from_slice(&4u32.to_le_bytes());
     bytes[8..12].copy_from_slice(b"test");
-    
+
     let result = SyncPacket::from_bytes(&bytes);
     assert!(result.is_err());
 }
@@ -102,12 +111,12 @@ fn test_sync_packet_roundtrip() {
         (SyncCommand::Done, vec![0x12, 0x34, 0x56, 0x78]),
         (SyncCommand::Fail, b"Permission denied".to_vec()),
     ];
-    
+
     for (cmd, data) in test_cases {
         let packet = SyncPacket::new(cmd, data.clone());
         let bytes = packet.to_bytes();
         let deserialized = SyncPacket::from_bytes(&bytes).unwrap();
-        
+
         assert_eq!(deserialized.command, cmd);
         assert_eq!(deserialized.data, data);
     }
@@ -144,7 +153,7 @@ fn test_file_stat_error_too_short() {
     let bytes = vec![0u8; 11]; // One byte short
     let result = FileStat::from_bytes(&bytes);
     assert!(result.is_err());
-    
+
     let bytes = vec![0u8; 8]; // Way too short
     let result = FileStat::from_bytes(&bytes);
     assert!(result.is_err());
@@ -157,7 +166,7 @@ fn test_dir_entry_is_directory() {
         size: 0,
         mtime: 0,
     };
-    
+
     assert!(entry.is_directory());
     assert!(!entry.is_file());
 }
@@ -169,7 +178,7 @@ fn test_dir_entry_is_file() {
         size: 1234,
         mtime: 0,
     };
-    
+
     assert!(!entry.is_directory());
     assert!(entry.is_file());
 }
@@ -181,7 +190,7 @@ fn test_dir_entry_symlink() {
         size: 10,
         mtime: 0,
     };
-    
+
     // Symlinks are neither files nor directories in our simple check
     assert!(!entry.is_directory());
     assert!(!entry.is_file());
@@ -197,7 +206,7 @@ fn test_dir_entry_special_files() {
     };
     assert!(!block_dev.is_directory());
     assert!(!block_dev.is_file());
-    
+
     // Character device
     let char_dev = DirEntry {
         name: "null".to_string(),

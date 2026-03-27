@@ -83,11 +83,7 @@ impl Message {
     /// Create a new message
     pub fn new(command: Command, arg0: u32, arg1: u32, data: &[u8]) -> Self {
         let data_length = data.len() as u32;
-        let data_crc32 = if data.is_empty() {
-            0
-        } else {
-            checksum(data)
-        };
+        let data_crc32 = if data.is_empty() { 0 } else { checksum(data) };
         let magic = (command as u32) ^ 0xffffffff;
 
         Self {
@@ -115,14 +111,13 @@ impl Message {
     /// Deserialize message from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, AdbError> {
         if bytes.len() < 24 {
-            return Err(AdbError::InvalidMessage(
-                "Message too short".to_string(),
-            ));
+            return Err(AdbError::InvalidMessage("Message too short".to_string()));
         }
 
         let command = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-        let command = Command::from_u32(command)
-            .ok_or_else(|| AdbError::InvalidMessage(format!("Unknown command: 0x{:08x}", command)))?;
+        let command = Command::from_u32(command).ok_or_else(|| {
+            AdbError::InvalidMessage(format!("Unknown command: 0x{:08x}", command))
+        })?;
 
         let arg0 = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
         let arg1 = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
@@ -251,7 +246,7 @@ mod tests {
     fn test_checksum() {
         let data = b"Hello, ADB!";
         let sum = checksum(data);
-        
+
         // Checksum should be sum of all bytes
         let expected: u32 = data.iter().map(|&b| b as u32).sum();
         assert_eq!(sum, expected);
@@ -261,7 +256,7 @@ mod tests {
     fn test_message_verify_data() {
         let data = b"test data";
         let message = Message::new(Command::Wrte, 1, 2, data);
-        
+
         assert!(message.verify_data(data));
         assert!(!message.verify_data(b"wrong data"));
     }

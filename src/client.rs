@@ -1,7 +1,5 @@
 use super::auth::AdbKeyPair;
-use super::protocol::{
-    AdbError, Command, ConnectionState, Message, Stream, ADB_VERSION, AuthType,
-};
+use super::protocol::{AdbError, AuthType, Command, ConnectionState, Message, Stream, ADB_VERSION};
 use super::transport::WebUsbTransport;
 use std::collections::HashMap;
 
@@ -25,14 +23,13 @@ pub struct AdbClient {
 
 impl AdbClient {
     /// Create a new ADB client
-    pub async fn new(
-        transport: WebUsbTransport,
-        keypair: AdbKeyPair,
-    ) -> Result<Self, AdbError> {
+    pub async fn new(transport: WebUsbTransport, keypair: AdbKeyPair) -> Result<Self, AdbError> {
         let device_info = transport.device_info();
         let system_identity = format!(
             "host::rust-webadb:{}",
-            device_info.serial_number.unwrap_or_else(|| "unknown".to_string())
+            device_info
+                .serial_number
+                .unwrap_or_else(|| "unknown".to_string())
         );
 
         Ok(Self {
@@ -45,25 +42,27 @@ impl AdbClient {
             last_health_check: Self::now(),
         })
     }
-    
+
     /// Get current timestamp
     fn now() -> f64 {
         js_sys::Date::now()
     }
-    
+
     /// Get active stream count
     pub fn active_stream_count(&self) -> usize {
         self.streams.len()
     }
-    
+
     /// Cleanup stale streams (older than 30 seconds)
     pub async fn cleanup_stale_streams(&mut self) -> usize {
         let now = Self::now();
-        let stale_ids: Vec<u32> = self.streams.iter()
+        let stale_ids: Vec<u32> = self
+            .streams
+            .iter()
             .filter(|(_, ts)| now - ts.last_activity > 30000.0)
             .map(|(id, _)| *id)
             .collect();
-        
+
         for id in &stale_ids {
             if let Some(ts) = self.streams.get(id) {
                 let clse = Message::new(Command::Clse, *id, ts.stream.remote_id, &[]);
@@ -71,10 +70,10 @@ impl AdbClient {
             }
             self.streams.remove(id);
         }
-        
+
         stale_ids.len()
     }
-    
+
     /// Health check with rate limiting
     pub async fn health_check(&mut self) -> Result<bool, AdbError> {
         let now = Self::now();
@@ -82,15 +81,19 @@ impl AdbClient {
             return Ok(true);
         }
         self.last_health_check = now;
-        
+
         match self.shell_with_timeout("echo ping", 2000).await {
             Ok(out) => Ok(out.trim() == "ping"),
             Err(_) => Ok(false),
         }
     }
-    
+
     /// Execute shell command with timeout
-    pub async fn shell_with_timeout(&mut self, command: &str, timeout_ms: u32) -> Result<String, AdbError> {
+    pub async fn shell_with_timeout(
+        &mut self,
+        command: &str,
+        timeout_ms: u32,
+    ) -> Result<String, AdbError> {
         let dest = format!("shell:{}", command);
         let local_id = self.open_stream(&dest).await?;
         let start = Self::now();
@@ -102,7 +105,7 @@ impl AdbClient {
                 let _ = self.close_stream(local_id).await;
                 return Err(AdbError::IoError(format!("Timeout after {}ms", timeout_ms)));
             }
-            
+
             match self.read_stream().await {
                 Ok((_, data)) => output.extend_from_slice(&data),
                 Err(AdbError::StreamError(msg)) if msg.contains("closed") => break,
@@ -164,7 +167,8 @@ impl AdbClient {
             1 => {
                 // TOKEN - sign the token and send back
                 let signature = self.keypair.sign_token(&token)?;
-                let message = Message::new(Command::Auth, AuthType::Signature as u32, 0, &signature);
+                let message =
+                    Message::new(Command::Auth, AuthType::Signature as u32, 0, &signature);
                 self.transport.send_message(&message, &signature).await?;
 
                 // Wait for response
@@ -196,12 +200,7 @@ impl AdbClient {
     /// Send public key to device
     async fn send_public_key(&mut self) -> Result<(), AdbError> {
         let public_key = self.keypair.get_public_key("rust-webadb")?;
-        let message = Message::new(
-            Command::Auth,
-            AuthType::RsaPublicKey as u32,
-            0,
-            &public_key,
-        );
+        let message = Message::new(Command::Auth, AuthType::RsaPublicKey as u32, 0, &public_key);
 
         self.transport.send_message(&message, &public_key).await?;
 
@@ -231,21 +230,23 @@ impl AdbClient {
         let data = format!("{}\0", destination);
         let message = Message::new(Command::Open, local_id, 0, data.as_bytes());
 
-        self.transport.send_message(&message, data.as_bytes()).await?;
+        self.transport
+            .send_message(&message, data.as_bytes())
+            .await?;
 
         // Wait for OKAY response - but drain stale messages first
         // We might receive WRTE/OKAY from previous streams
         let mut attempts = 0;
         const MAX_ATTEMPTS: usize = 10;
-        
+
         loop {
             attempts += 1;
             if attempts > MAX_ATTEMPTS {
                 return Err(AdbError::StreamError(
-                    "Failed to open stream: too many stale messages".to_string()
+                    "Failed to open stream: too many stale messages".to_string(),
                 ));
             }
-            
+
             let (response, response_data) = self.transport.recv_message().await?;
 
             match response.command {
@@ -273,13 +274,13 @@ impl AdbClient {
                         // Device rejected the stream - send CLSE acknowledgment back
                         let clse = Message::new(Command::Clse, local_id, response.arg0, &[]);
                         let _ = self.transport.send_message(&clse, &[]).await;
-                        
+
                         let error_msg = if !response_data.is_empty() {
                             String::from_utf8_lossy(&response_data).to_string()
                         } else {
                             format!("Stream '{}' rejected by device", destination)
                         };
-                        
+
                         return Err(AdbError::StreamError(format!(
                             "Failed to open stream: {}",
                             error_msg
@@ -288,7 +289,12 @@ impl AdbClient {
                         // CLSE for different stream - handle it
                         if let Some(old_tracked) = self.streams.get(&response.arg1) {
                             // Send CLSE acknowledgment for the old stream
-                            let clse = Message::new(Command::Clse, response.arg1, old_tracked.stream.remote_id, &[]);
+                            let clse = Message::new(
+                                Command::Clse,
+                                response.arg1,
+                                old_tracked.stream.remote_id,
+                                &[],
+                            );
                             let _ = self.transport.send_message(&clse, &[]).await;
                             self.streams.remove(&response.arg1);
                         }
@@ -299,7 +305,12 @@ impl AdbClient {
                     // Data for an old stream - send OKAY and skip
                     let old_local_id = response.arg1;
                     if let Some(old_tracked) = self.streams.get(&old_local_id) {
-                        let okay = Message::new(Command::Okay, old_local_id, old_tracked.stream.remote_id, &[]);
+                        let okay = Message::new(
+                            Command::Okay,
+                            old_local_id,
+                            old_tracked.stream.remote_id,
+                            &[],
+                        );
                         let _ = self.transport.send_message(&okay, &[]).await;
                     }
                     continue;
@@ -318,7 +329,8 @@ impl AdbClient {
             .streams
             .get(&local_id)
             .ok_or(AdbError::StreamError("Stream not found".to_string()))?
-            .stream.remote_id;
+            .stream
+            .remote_id;
 
         let message = Message::new(Command::Wrte, local_id, remote_id, data);
         self.transport.send_message(&message, data).await?;
@@ -330,7 +342,7 @@ impl AdbClient {
 
         // Wait for OKAY
         let (response, _) = self.transport.recv_message().await?;
-        
+
         match response.command {
             Command::Okay => Ok(()),
             _ => Err(AdbError::StreamError("Write not acknowledged".to_string())),
@@ -346,32 +358,33 @@ impl AdbClient {
             match message.command {
                 Command::Wrte => {
                     let local_id = message.arg1; // arg1 is the remote_id (our local_id)
-                    
+
                     // Try to find the stream
                     let tracked = self.streams.get(&local_id);
-                    
+
                     if let Some(tracked) = tracked {
                         // Send OKAY acknowledgment
-                        let okay = Message::new(Command::Okay, local_id, tracked.stream.remote_id, &[]);
+                        let okay =
+                            Message::new(Command::Okay, local_id, tracked.stream.remote_id, &[]);
                         self.transport.send_message(&okay, &[]).await?;
-                        
+
                         // Update activity
                         if let Some(t) = self.streams.get_mut(&local_id) {
                             t.last_activity = Self::now();
                         }
-                        
+
                         return Ok((local_id, data));
                     } else {
                         // Stream not found - this can happen if device sends data after we closed
                         // Send OKAY anyway to avoid blocking the device, then treat as closed
                         let okay = Message::new(Command::Okay, local_id, message.arg0, &[]);
                         let _ = self.transport.send_message(&okay, &[]).await;
-                        
+
                         // If we got data, return it even though stream is closed
                         if !data.is_empty() {
                             return Ok((local_id, data));
                         }
-                        
+
                         // No data and stream closed - signal closure
                         return Err(AdbError::StreamError("Stream closed by device".to_string()));
                     }
@@ -470,15 +483,13 @@ impl AdbClient {
         // Stream closed naturally, still need to send CLSE and cleanup
         self.close_stream(local_id).await?;
 
-        String::from_utf8(output)
-            .map_err(|e| AdbError::IoError(format!("Invalid UTF-8: {}", e)))
+        String::from_utf8(output).map_err(|e| AdbError::IoError(format!("Invalid UTF-8: {}", e)))
     }
-    
 
     /// Get device properties
     pub async fn get_properties(&mut self) -> Result<HashMap<String, String>, AdbError> {
         let output = self.shell("getprop").await?;
-        
+
         let mut props = HashMap::new();
         for line in output.lines() {
             if let Some((key, value)) = parse_property_line(line) {
@@ -496,7 +507,7 @@ impl AdbClient {
             Some("recovery") => "reboot:recovery",
             _ => "reboot:",
         };
-        
+
         let local_id = self.open_stream(command).await?;
         self.close_stream(local_id).await?;
         Ok(())
@@ -512,7 +523,7 @@ impl AdbClient {
         // Send RECV command with path (just the path bytes, no null terminator)
         let recv_data = remote_path.as_bytes().to_vec();
         let recv_packet = SyncPacket::new(SyncCommand::Recv, recv_data);
-        
+
         if let Err(e) = self.write_stream(local_id, &recv_packet.to_bytes()).await {
             let _ = self.close_stream(local_id).await;
             return Err(e);
@@ -521,7 +532,7 @@ impl AdbClient {
         // Read data packets
         let mut file_data = Vec::new();
         let mut buffer = Vec::new();
-        
+
         loop {
             let (_, data) = match self.read_stream().await {
                 Ok(result) => result,
@@ -533,29 +544,28 @@ impl AdbClient {
                     return Err(e);
                 }
             };
-            
+
             if data.is_empty() {
                 break;
             }
-            
+
             buffer.extend_from_slice(&data);
-            
+
             // Process all complete packets in buffer
             loop {
                 if buffer.len() < 8 {
                     break;
                 }
-                
-                let length = u32::from_le_bytes([
-                    buffer[4], buffer[5], buffer[6], buffer[7],
-                ]) as usize;
-                
+
+                let length =
+                    u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]) as usize;
+
                 let packet_size = 8 + length;
-                
+
                 if buffer.len() < packet_size {
                     break;
                 }
-                
+
                 // Extract and parse packet
                 let packet_data = buffer.drain(..packet_size).collect::<Vec<u8>>();
                 let packet = match SyncPacket::from_bytes(&packet_data) {
@@ -565,7 +575,7 @@ impl AdbClient {
                         return Err(e);
                     }
                 };
-                
+
                 match packet.command {
                     SyncCommand::Data => {
                         file_data.extend_from_slice(&packet.data);
@@ -581,19 +591,25 @@ impl AdbClient {
                     }
                     _ => {
                         let _ = self.close_stream(local_id).await;
-                        return Err(AdbError::IoError(format!("Unexpected sync command: {:?}", packet.command)));
+                        return Err(AdbError::IoError(format!(
+                            "Unexpected sync command: {:?}",
+                            packet.command
+                        )));
                     }
                 }
             }
         }
-        
+
         self.close_stream(local_id).await?;
         Ok(file_data)
     }
 
     /// Get file statistics
-    pub async fn stat_file(&mut self, remote_path: &str) -> Result<crate::sync::FileStat, AdbError> {
-        use crate::sync::{SyncCommand, SyncPacket, FileStat};
+    pub async fn stat_file(
+        &mut self,
+        remote_path: &str,
+    ) -> Result<crate::sync::FileStat, AdbError> {
+        use crate::sync::{FileStat, SyncCommand, SyncPacket};
 
         let local_id = self.open_stream("sync:").await?;
 
@@ -606,44 +622,42 @@ impl AdbClient {
 
         // Read response - might need to accumulate data
         let mut buffer = Vec::new();
-        
+
         loop {
             let (_, data) = match self.read_stream().await {
                 Ok(result) => result,
                 Err(AdbError::StreamError(msg)) if msg.contains("closed") => {
                     // Stream closed without response
                     let _ = self.close_stream(local_id).await;
-                    return Err(AdbError::IoError("Stream closed before receiving stat response".to_string()));
+                    return Err(AdbError::IoError(
+                        "Stream closed before receiving stat response".to_string(),
+                    ));
                 }
                 Err(e) => {
                     let _ = self.close_stream(local_id).await;
                     return Err(e);
                 }
             };
-            
+
             // If we get empty data, something is wrong
             if data.is_empty() {
                 let _ = self.close_stream(local_id).await;
                 return Err(AdbError::IoError("No stat response received".to_string()));
             }
-            
+
             buffer.extend_from_slice(&data);
-            
+
             // Check if we have a complete packet (at least 8 bytes for header)
             if buffer.len() >= 8 {
-                let length = u32::from_le_bytes([
-                    buffer[4],
-                    buffer[5],
-                    buffer[6],
-                    buffer[7],
-                ]) as usize;
-                
+                let length =
+                    u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]) as usize;
+
                 let packet_size = 8 + length;
-                
+
                 if buffer.len() >= packet_size {
                     // We have a complete packet
                     let packet_data = buffer[..packet_size].to_vec();
-                    
+
                     let packet = match SyncPacket::from_bytes(&packet_data) {
                         Ok(p) => p,
                         Err(e) => {
@@ -667,7 +681,10 @@ impl AdbClient {
                         }
                         _ => {
                             let _ = self.close_stream(local_id).await;
-                            return Err(AdbError::IoError(format!("Unexpected sync command: {:?}", packet.command)));
+                            return Err(AdbError::IoError(format!(
+                                "Unexpected sync command: {:?}",
+                                packet.command
+                            )));
                         }
                     };
 
@@ -680,11 +697,11 @@ impl AdbClient {
     }
 
     /// Generate and retrieve a full bugreport (can take several minutes)
-    /// 
+    ///
     /// WARNING: This is VERY SLOW:
     /// - Generation: 2-5 minutes (device generates the report)
     /// - Download: 1-3 minutes (large file ~10-50MB)
-    /// 
+    ///
     /// RECOMMENDED: Use list_bugreports() + download_bugreport() instead
     /// to download previously generated reports instantly.
     pub async fn bugreport(&mut self) -> Result<Vec<u8>, AdbError> {
@@ -727,38 +744,39 @@ impl AdbClient {
         }
 
         self.close_stream(local_id).await?;
-        
+
         // bugreportz outputs the path to the ZIP file
         // Format: "OK:/data/user_de/0/com.android.shell/files/bugreports/bugreport-XXXXX.zip"
         let output = String::from_utf8_lossy(&report_data);
-        
+
         if output.starts_with("OK:") {
             // Extract file path
             let lines: Vec<&str> = output.lines().collect();
             if let Some(first_line) = lines.first() {
                 if let Some(path) = first_line.strip_prefix("OK:") {
                     let path = path.trim();
-                    
+
                     // Now pull the large file (1-3 minutes for large bugreports)
                     return self.pull_file(path).await.map_err(|e| {
                         AdbError::IoError(format!(
                             "Bugreport generated at '{}' but failed to download: {}. \
-                             You can try list_bugreports() and download_bugreport('{}') to retry.", 
+                             You can try list_bugreports() and download_bugreport('{}') to retry.",
                             path, e, path
                         ))
                     });
                 }
             }
         }
-        
+
         // Old-style bugreport returned data directly
         if report_data.is_empty() {
             return Err(AdbError::IoError(
                 "Bugreport generation timed out or returned no data. \
-                 Try list_bugreports() to download existing reports instead.".to_string()
+                 Try list_bugreports() to download existing reports instead."
+                    .to_string(),
             ));
         }
-        
+
         Ok(report_data)
     }
 
@@ -780,8 +798,9 @@ impl AdbClient {
                 Ok(entries) => {
                     for entry in entries {
                         // Filter for bugreport files (ZIP or TXT)
-                        if entry.name.starts_with("bugreport-") && 
-                           (entry.name.ends_with(".zip") || entry.name.ends_with(".txt")) {
+                        if entry.name.starts_with("bugreport-")
+                            && (entry.name.ends_with(".zip") || entry.name.ends_with(".txt"))
+                        {
                             let full_path = format!("{}/{}", dir, entry.name);
                             bugreports.push(full_path);
                         }
@@ -846,62 +865,77 @@ impl AdbClient {
 
     /// List directory contents
     /// Uses shell ls command for reliability (sync protocol can hang)
-    pub async fn list_directory(&mut self, path: &str) -> Result<Vec<crate::sync::DirEntry>, AdbError> {
+    pub async fn list_directory(
+        &mut self,
+        path: &str,
+    ) -> Result<Vec<crate::sync::DirEntry>, AdbError> {
         // Use shell command directly - it's more reliable and never hangs
         self.list_directory_shell(path).await
     }
 
     /// List directory using shell ls command
-    async fn list_directory_shell(&mut self, path: &str) -> Result<Vec<crate::sync::DirEntry>, AdbError> {
+    async fn list_directory_shell(
+        &mut self,
+        path: &str,
+    ) -> Result<Vec<crate::sync::DirEntry>, AdbError> {
         use crate::sync::DirEntry;
-        
+
         // Use ls with specific format - escape single quotes in path
         let escaped_path = path.replace("'", "'\\''");
         let command = format!("ls -la '{}'", escaped_path);
-        
+
         let output = match self.shell(&command).await {
             Ok(o) => o,
             Err(e) => {
                 // If ls fails, try without -a flag (some devices don't support it)
                 let command = format!("ls -l '{}'", escaped_path);
-                self.shell(&command).await
-                    .map_err(|_| e)? // Return original error if this also fails
+                self.shell(&command).await.map_err(|_| e)? // Return original error if this also fails
             }
         };
-        
+
         let mut entries = Vec::new();
-        
+
         for line in output.lines() {
             // Skip empty lines and total line
             let line = line.trim();
             if line.is_empty() || line.starts_with("total") {
                 continue;
             }
-            
+
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() < 8 {
                 continue;
             }
-            
+
             let mode_str = parts[0];
             let size = parts[4].parse::<u32>().unwrap_or(0);
-            
+
             // Name is everything after column 7 (to handle spaces in names)
             let name = parts[7..].join(" ");
-            
+
             // Skip . and ..
             if name == "." || name == ".." {
                 continue;
             }
-            
+
             // Convert mode string to numeric
             let mut mode = 0u32;
-            if mode_str.starts_with('d') { mode |= 0o040000; } // Directory
-            if mode_str.starts_with('l') { mode |= 0o120000; } // Symlink
-            if mode_str.starts_with('-') { mode |= 0o100000; } // Regular file
-            if mode_str.starts_with('b') { mode |= 0o060000; } // Block device
-            if mode_str.starts_with('c') { mode |= 0o020000; } // Char device
-            
+            if mode_str.starts_with('d') {
+                mode |= 0o040000;
+            } // Directory
+            if mode_str.starts_with('l') {
+                mode |= 0o120000;
+            } // Symlink
+            if mode_str.starts_with('-') {
+                mode |= 0o100000;
+            } // Regular file
+            if mode_str.starts_with('b') {
+                mode |= 0o060000;
+            } // Block device
+            if mode_str.starts_with('c') {
+                mode |= 0o020000;
+            } // Char device
+
             entries.push(DirEntry {
                 name,
                 mode,
@@ -909,7 +943,7 @@ impl AdbClient {
                 mtime: 0, // ls -la doesn't give us easy mtime parsing
             });
         }
-        
+
         Ok(entries)
     }
 
@@ -923,7 +957,7 @@ impl AdbClient {
         // Send SEND command with path and mode (0644 = rw-r--r--)
         let path_and_mode = format!("{},0644", remote_path);
         let send_packet = SyncPacket::new(SyncCommand::Send, path_and_mode.as_bytes().to_vec());
-        
+
         if let Err(e) = self.write_stream(local_id, &send_packet.to_bytes()).await {
             let _ = self.close_stream(local_id).await;
             return Err(e);
@@ -932,25 +966,25 @@ impl AdbClient {
         // Send data in chunks (max 64KB per chunk)
         const CHUNK_SIZE: usize = 65536;
         let mut offset = 0;
-        
+
         while offset < data.len() {
             let end = std::cmp::min(offset + CHUNK_SIZE, data.len());
             let chunk = &data[offset..end];
-            
+
             let data_packet = SyncPacket::new(SyncCommand::Data, chunk.to_vec());
-            
+
             if let Err(e) = self.write_stream(local_id, &data_packet.to_bytes()).await {
                 let _ = self.close_stream(local_id).await;
                 return Err(e);
             }
-            
+
             offset = end;
         }
 
         // Send DONE packet with timestamp (use current time)
         let timestamp = (js_sys::Date::now() / 1000.0) as u32;
         let done_packet = SyncPacket::new(SyncCommand::Done, timestamp.to_le_bytes().to_vec());
-        
+
         if let Err(e) = self.write_stream(local_id, &done_packet.to_bytes()).await {
             let _ = self.close_stream(local_id).await;
             return Err(e);
@@ -969,19 +1003,19 @@ impl AdbClient {
                     return Err(e);
                 }
             };
-            
+
             if data.is_empty() {
                 break;
             }
-            
+
             buffer.extend_from_slice(&data);
-            
+
             if buffer.len() >= 8 {
                 let packet = match SyncPacket::from_bytes(&buffer) {
                     Ok(p) => p,
                     Err(_) => break,
                 };
-                
+
                 match packet.command {
                     SyncCommand::Done => {
                         self.close_stream(local_id).await?;
@@ -996,7 +1030,7 @@ impl AdbClient {
                 }
             }
         }
-        
+
         self.close_stream(local_id).await?;
         Ok(())
     }

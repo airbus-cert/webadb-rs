@@ -3,8 +3,8 @@ use super::protocol::{AdbError, Message};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-    UsbDevice, UsbDeviceFilter, UsbDeviceRequestOptions, UsbDirection,
-    UsbInTransferResult, UsbOutTransferResult, UsbTransferStatus,
+    UsbDevice, UsbDeviceFilter, UsbDeviceRequestOptions, UsbDirection, UsbInTransferResult,
+    UsbOutTransferResult, UsbTransferStatus,
 };
 
 /// ADB USB interface class/subclass/protocol
@@ -23,9 +23,9 @@ pub struct WebUsbTransport {
 impl WebUsbTransport {
     /// Request device access from user
     pub async fn request_device() -> Result<Self, AdbError> {
-        let window = web_sys::window()
-            .ok_or_else(|| AdbError::UsbError("No window object".to_string()))?;
-        
+        let window =
+            web_sys::window().ok_or_else(|| AdbError::UsbError("No window object".to_string()))?;
+
         let navigator = window.navigator();
         let usb = navigator.usb(); // Returns Usb directly, not Result
 
@@ -56,13 +56,14 @@ impl WebUsbTransport {
     pub async fn open(device: UsbDevice) -> Result<Self, AdbError> {
         // Open the device
         let promise = device.open();
-        
+
         JsFuture::from(promise)
             .await
             .map_err(|e| AdbError::UsbError(format!("Failed to open device: {:?}", e)))?;
 
         // Find ADB interface and endpoints
-        let configuration = device.configuration()
+        let configuration = device
+            .configuration()
             .ok_or_else(|| AdbError::UsbError("No configuration available".to_string()))?;
 
         let interfaces = configuration.interfaces();
@@ -71,11 +72,16 @@ impl WebUsbTransport {
         let mut endpoint_out = None;
 
         for i in 0..interfaces.length() {
-            let interface: web_sys::UsbInterface = interfaces.get(i).dyn_into()
+            let interface: web_sys::UsbInterface = interfaces
+                .get(i)
+                .dyn_into()
                 .map_err(|_| AdbError::UsbError("Failed to get interface".to_string()))?;
 
             for j in 0..interface.alternates().length() {
-                let alternate: web_sys::UsbAlternateInterface = interface.alternates().get(j).dyn_into()
+                let alternate: web_sys::UsbAlternateInterface = interface
+                    .alternates()
+                    .get(j)
+                    .dyn_into()
                     .map_err(|_| AdbError::UsbError("Failed to get alternate".to_string()))?;
 
                 if alternate.interface_class() == ADB_CLASS
@@ -87,8 +93,10 @@ impl WebUsbTransport {
                     // Find endpoints
                     let endpoints = alternate.endpoints();
                     for k in 0..endpoints.length() {
-                        let endpoint: web_sys::UsbEndpoint = endpoints.get(k).dyn_into()
-                            .map_err(|_| AdbError::UsbError("Failed to get endpoint".to_string()))?;
+                        let endpoint: web_sys::UsbEndpoint =
+                            endpoints.get(k).dyn_into().map_err(|_| {
+                                AdbError::UsbError("Failed to get endpoint".to_string())
+                            })?;
 
                         match endpoint.direction() {
                             UsbDirection::In => {
@@ -111,10 +119,10 @@ impl WebUsbTransport {
 
         let interface_number = adb_interface
             .ok_or_else(|| AdbError::UsbError("ADB interface not found".to_string()))?;
-        let endpoint_in = endpoint_in
-            .ok_or_else(|| AdbError::UsbError("IN endpoint not found".to_string()))?;
-        let endpoint_out = endpoint_out
-            .ok_or_else(|| AdbError::UsbError("OUT endpoint not found".to_string()))?;
+        let endpoint_in =
+            endpoint_in.ok_or_else(|| AdbError::UsbError("IN endpoint not found".to_string()))?;
+        let endpoint_out =
+            endpoint_out.ok_or_else(|| AdbError::UsbError("OUT endpoint not found".to_string()))?;
 
         // Try to release interface first in case it's already claimed
         // This is safe to do - if not claimed, it will just fail silently
@@ -124,7 +132,7 @@ impl WebUsbTransport {
 
         // Claim the interface
         let promise = device.claim_interface(interface_number);
-        
+
         JsFuture::from(promise)
             .await
             .map_err(|e| {
@@ -153,9 +161,11 @@ impl WebUsbTransport {
     /// Send raw data to device
     pub async fn write(&self, data: &[u8]) -> Result<(), AdbError> {
         let array = js_sys::Uint8Array::from(data);
-        let promise = self.device.transfer_out_with_u8_array(self.endpoint_out, &array)
+        let promise = self
+            .device
+            .transfer_out_with_u8_array(self.endpoint_out, &array)
             .map_err(|e| AdbError::UsbError(format!("Failed to initiate transfer: {:?}", e)))?;
-        
+
         let result = JsFuture::from(promise)
             .await
             .map_err(|e| AdbError::UsbError(format!("Write failed: {:?}", e)))?;
@@ -166,14 +176,17 @@ impl WebUsbTransport {
 
         match result.status() {
             UsbTransferStatus::Ok => Ok(()),
-            _ => Err(AdbError::UsbError(format!("Transfer status: {:?}", result.status()))),
+            _ => Err(AdbError::UsbError(format!(
+                "Transfer status: {:?}",
+                result.status()
+            ))),
         }
     }
 
     /// Read raw data from device
     pub async fn read(&self, length: u32) -> Result<Vec<u8>, AdbError> {
         let promise = self.device.transfer_in(self.endpoint_in, length);
-        
+
         let result = JsFuture::from(promise)
             .await
             .map_err(|e| AdbError::UsbError(format!("Read failed: {:?}", e)))?;
@@ -184,12 +197,16 @@ impl WebUsbTransport {
 
         match result.status() {
             UsbTransferStatus::Ok => {
-                let data = result.data()
+                let data = result
+                    .data()
                     .ok_or_else(|| AdbError::UsbError("No data in transfer".to_string()))?;
-                
+
                 Ok(js_sys::Uint8Array::new(&data.buffer()).to_vec())
             }
-            _ => Err(AdbError::UsbError(format!("Transfer status: {:?}", result.status()))),
+            _ => Err(AdbError::UsbError(format!(
+                "Transfer status: {:?}",
+                result.status()
+            ))),
         }
     }
 
@@ -216,14 +233,14 @@ impl WebUsbTransport {
         // Read data if present
         let data = if message.data_length > 0 {
             let data = self.read(message.data_length).await?;
-            
+
             // Verify checksum
             if !message.verify_data(&data) {
                 return Err(AdbError::InvalidMessage(
                     "Data checksum mismatch".to_string(),
                 ));
             }
-            
+
             data
         } else {
             Vec::new()
@@ -236,24 +253,30 @@ impl WebUsbTransport {
     pub async fn close(&self) -> Result<(), AdbError> {
         // Try to release interface - ignore if device already disconnected
         let promise = self.device.release_interface(self.interface_number);
-        
+
         if let Err(e) = JsFuture::from(promise).await {
             let error_str = format!("{:?}", e);
             // Ignore errors if device is already disconnected
             if !error_str.contains("NotFoundError") && !error_str.contains("disconnected") {
-                return Err(AdbError::UsbError(format!("Failed to release interface: {:?}", e)));
+                return Err(AdbError::UsbError(format!(
+                    "Failed to release interface: {:?}",
+                    e
+                )));
             }
             // Device already disconnected, no need to release
         }
 
         // Try to close device - ignore if device already disconnected
         let promise = self.device.close();
-        
+
         if let Err(e) = JsFuture::from(promise).await {
             let error_str = format!("{:?}", e);
             // Ignore errors if device is already disconnected
             if !error_str.contains("NotFoundError") && !error_str.contains("disconnected") {
-                return Err(AdbError::UsbError(format!("Failed to close device: {:?}", e)));
+                return Err(AdbError::UsbError(format!(
+                    "Failed to close device: {:?}",
+                    e
+                )));
             }
             // Device already disconnected, no need to close
         }
